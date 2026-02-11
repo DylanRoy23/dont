@@ -10,7 +10,7 @@ from flight_engine.helpers import Position
 class WaypointManager:
     """Manages waypoint queue and navigation logic"""
     
-    def __init__(self, arrival_threshold: float = 10.0):
+    def __init__(self, arrival_threshold: float = 30.0):
         self.waypoint_queue: Deque[Position] = deque()
         self.current_waypoint: Optional[Position] = None
         self.arrival_threshold = arrival_threshold

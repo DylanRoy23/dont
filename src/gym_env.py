@@ -18,8 +18,8 @@ class MultiUAVEnv(gym.Env):
             boundary_margin=0.15,
             mission_waypoint_count=3,
             mode='gen_mission', #gen_mission or manual_mission
-            caution_dist=100,
-            critical_dist=35
+            caution_dist=100.0,
+            critical_dist=35.0
         ):
         super().__init__()
         self.aircraft_list = aircraft_list
@@ -31,7 +31,7 @@ class MultiUAVEnv(gym.Env):
         self.mode = mode
         self.caution_dist = caution_dist
         self.critical_dist = critical_dist
-
+        
         # Telemetry
         self.update_bounds(tl, br)
 
@@ -40,7 +40,7 @@ class MultiUAVEnv(gym.Env):
         self.observation_space = spaces.Box(
             low=-np.inf,
             high=np.inf, 
-            shape=(self.max_uavs * self.obs_per_uav,), #
+            shape=(self.max_uavs * self.obs_per_uav,),
             dtype=np.float32
         )
         
@@ -59,7 +59,6 @@ class MultiUAVEnv(gym.Env):
         self.wp_max_lon = self.max_lon - (lon_range * self.boundary_margin)
 
     def _refill_mission(self, ac):
-        """Maintains the queue size up to mission_waypoint_count."""
         current_total = ac.waypoint_manager.queue_size() + (1 if ac.waypoint_manager.current_waypoint else 0)
         needed = self.mission_waypoint_count - current_total
         for _ in range(max(0, int(needed))):
@@ -70,29 +69,21 @@ class MultiUAVEnv(gym.Env):
             ac.waypoint_manager.add_waypoint(wp)
 
     def _check_line_segment_arrival(self, p1_geo, p2_geo, wp_geo, radius):
-        """
-        Geometric Check: Did the path segment between p1 and p2 
-        cross the 'arrival bubble' around the waypoint?
-        """
-        # Convert all to local XY meters for flat-earth geometry
         a = np.array(self.transformer.geo_to_local(p1_geo[0], p1_geo[1]))
         b = np.array(self.transformer.geo_to_local(p2_geo[0], p2_geo[1]))
         p = np.array(self.transformer.geo_to_local(wp_geo[0], wp_geo[1]))
         
         ap = p - a
         ab = b - a
-        # Project point p onto line segment ab, clamped between 0 and 1
         t = np.clip(np.dot(ap, ab) / (np.dot(ab, ab) + 1e-9), 0, 1)
         closest_point = a + t * ab
         distance_to_segment = np.linalg.norm(p - closest_point)
-        
         return distance_to_segment < radius
 
     def _get_neighbor_obs(self, subject_idx, num_neighbors=2):
         neighbor_features = []
         subject_ac = self.aircraft_list[subject_idx]
         
-        # Subject velocity vector
         v1_x = subject_ac.dynamics.cruise_speed * np.sin(subject_ac.heading)
         v1_y = subject_ac.dynamics.cruise_speed * np.cos(subject_ac.heading)
         
@@ -108,39 +99,29 @@ class MultiUAVEnv(gym.Env):
         for i in range(num_neighbors):
             if i < len(others):
                 dist, other_ac = others[i]
-                
-                # 1. Calculate Closing Velocity (Vc)
                 v2_x = other_ac.dynamics.cruise_speed * np.sin(other_ac.heading)
                 v2_y = other_ac.dynamics.cruise_speed * np.cos(other_ac.heading)
-                
-                # Relative velocity vector
                 rvx, rvy = v1_x - v2_x, v1_y - v2_y
                 
-                # Relative position vector (approximate using local XY)
                 p1 = self.transformer.geo_to_local(*subject_ac.position.to_tuple())
                 p2 = self.transformer.geo_to_local(*other_ac.position.to_tuple())
                 dx, dy = p2[0] - p1[0], p2[1] - p1[1]
                 
-                # Project relative velocity onto the line connecting them
-                # V_closing > 0 means they are getting closer
                 v_closing = (rvx * dx + rvy * dy) / (dist + 1e-6)
-                ttc = dist / v_closing if v_closing > 0 else 50.0 # 50s is 'safe'
+                ttc = dist / v_closing if v_closing > 0 else 50.0 
                 
-                # 2. Geometry
                 brg = np.arctan2(dy, dx)
                 rel_brg = wrap_angle(brg - subject_ac.heading)
                 rel_hdg = wrap_angle(other_ac.heading - subject_ac.heading)
                 
                 neighbor_features.extend([
                     np.clip(dist / sensing_radius, 0, 1.0),
-                    np.clip(ttc / 50.0, 0, 1.0), # Normalized TTC
+                    np.clip(ttc / 50.0, 0, 1.0),
                     np.sin(rel_brg), np.cos(rel_brg),
                     np.sin(rel_hdg), np.cos(rel_hdg)
                 ])
             else:
-                # Padding (Distance=1.0, TTC=1.0, and zeros)
                 neighbor_features.extend([1.0, 1.0, 0.0, 0.0, 0.0, 0.0])
-                
         return neighbor_features
 
     def _get_uav_obs(self, idx):
@@ -149,18 +130,16 @@ class MultiUAVEnv(gym.Env):
             
         ac = self.aircraft_list[idx]
         
-        # 1. Mission Logic
-        if self.mode == 'gen_mission' and not ac.waypoint_manager.has_waypoints():
-            self._refill_mission(ac)
+        # FIX: Removed the "if LOITERING return zeros" check. 
+        # Drones must always be visible to others.
         
-        if ac.flight_mode == FlightMode.LOITERING:
-            return np.zeros(self.obs_per_uav)
-
-        # 2. Navigation Features (10 values)
         wp = ac.waypoint_manager.current_waypoint
-        dist_wp = geodesic(ac.position.to_tuple(), wp.to_tuple()).meters
-        brg_wp = np.arctan2(wp.longitude - ac.position.longitude, wp.latitude - ac.position.latitude)
-        rel_brg_wp = wrap_angle(brg_wp - ac.heading)
+        if wp:
+            dist_wp = geodesic(ac.position.to_tuple(), wp.to_tuple()).meters
+            brg_wp = np.arctan2(wp.longitude - ac.position.longitude, wp.latitude - ac.position.latitude)
+            rel_brg_wp = wrap_angle(brg_wp - ac.heading)
+        else:
+            dist_wp, rel_brg_wp = 1000.0, 0.0
         
         nav_obs = [
             np.clip(dist_wp / 1000.0, 0, 1.0), 
@@ -168,40 +147,30 @@ class MultiUAVEnv(gym.Env):
             np.sin(ac.heading), np.cos(ac.heading),
             ac.dynamics.cruise_speed / 30.0,
             1.0 if ac.waypoint_manager.has_waypoints() else 0.0,
-            0.0, 0.0, 0.0 # Spare slots for altitude or vertical speed if needed
+            0.0, 0.0, 0.0 
         ]
         
-        # 3. Neighbor Features (12 values: 2 neighbors * 6 features each)
         neighbor_obs = self._get_neighbor_obs(idx, num_neighbors=2)
-        
         return np.array(nav_obs + neighbor_obs, dtype=np.float32)
     
     def _calculate_collision_rewards(self, rewards_list):
-        """
-        Calculates graded proximity penalties to provide a smooth gradient for the RL agent.
-        """
-        
+        # FIX: Smoother gradients. We use a linear penalty that is less likely to cause circling.
         for i1, i2 in combinations(range(len(self.aircraft_list)), 2):
             ac1, ac2 = self.aircraft_list[i1], self.aircraft_list[i2]
-            
-            # Use the same distance calculation as navigation
             sep = geodesic(ac1.position.to_tuple(), ac2.position.to_tuple()).meters
             
             if sep < self.caution_dist:
-                # 1. Soft Penalty (Caution Zone: 100m down to 35m)
-                # Normalizes to a 0.0 to 1.0 scale
+                # Severity 0.0 at caution_dist, 1.0 at 0m
                 severity = 1.0 - (sep / self.caution_dist)
-                penalty = -10.0 * severity 
+                penalty = -5.0 * severity  # Scaled down from -2000
                 
-                # 2. Hard Penalty (Danger Zone: < 35m)
                 if sep < self.critical_dist:
-                    # Quadratic spike to make this zone extremely unattractive
+                    # Quadratic spike only at very close range
                     danger_severity = (1.0 - (sep / self.critical_dist)) ** 2
-                    penalty += -2000.0 * danger_severity
+                    penalty += -50.0 * danger_severity
                 
                 rewards_list[i1] += penalty
                 rewards_list[i2] += penalty
-                
         return rewards_list
     
     def step(self, actions):
@@ -209,29 +178,19 @@ class MultiUAVEnv(gym.Env):
         uav_rewards = [0.0] * len(self.aircraft_list)
 
         for i, ac in enumerate(self.aircraft_list):
+            # Maintain the original loiter update logic
             if ac.flight_mode == FlightMode.LOITERING:
-                ac._update_loiter(
-                    self.transformer.geo_to_local(
-                        ac.position.latitude, 
-                        ac.position.longitude
-                    )[0],
-                    self.transformer.geo_to_local(
-                        ac.position.latitude, 
-                        ac.position.longitude
-                    )[1],
-                    self.dt, 
-                    self.transformer
-                )
+                lx, ly = self.transformer.geo_to_local(ac.position.latitude, ac.position.longitude)
+                ac._update_loiter(lx, ly, self.dt, self.transformer)
                 continue
-            if self.mode == 'gen_mission':
-                if not ac.waypoint_manager.has_waypoints():
-                    self._refill_mission(ac)
-            
+
             wp = ac.waypoint_manager.current_waypoint
+            if not wp: continue
+
             pos_prev = ac.position.to_tuple()
             dist_before = geodesic(pos_prev, wp.to_tuple()).meters
             
-            # 1. Physics: Update heading and position
+            # Physics Update
             turn_rate = actions[i] * ac.dynamics.max_turn_rate
             ac.heading = wrap_angle(ac.heading + (turn_rate * self.dt))
             dist_moved = ac.dynamics.cruise_speed * self.dt
@@ -242,52 +201,44 @@ class MultiUAVEnv(gym.Env):
             ac.position = Position(new_lat, new_lon)
             pos_curr = ac.position.to_tuple()
 
-            # 2. Sequential Arrival Logic (The Segment Check)
-            # We use the manager's arrival_threshold for the bubble radius
+            # Sequential Arrival Logic (Segment Check)
             arrived = self._check_line_segment_arrival(
                 pos_prev, pos_curr, wp.to_tuple(), ac.waypoint_manager.arrival_threshold
             )
 
-            # 3. Reward Shaping
+            # Reward Shaping
             dist_after = geodesic(pos_curr, wp.to_tuple()).meters
             hdg_to_wp = np.arctan2(wp.longitude-new_lon, wp.latitude-new_lat)
             hdg_err = abs(wrap_angle(hdg_to_wp - ac.heading))
             
-            # Progress + Alignment (Efficiency)
-            uav_rewards[i] = ((dist_before - dist_after) * 2.0) + (np.cos(hdg_err) * 4.0)
-            
-            # Smoothness Penalty: Penalize jerky steering (squared actions)
-            uav_rewards[i] -= 1.5 * (actions[i]**2)
-            uav_rewards[i] -= 0.1 # Constant step penalty
+            # Efficiency Rewards (Dense)
+            uav_rewards[i] = ((dist_before - dist_after) * 4.0) + (np.cos(hdg_err) * 2.0)
+            uav_rewards[i] -= 0.5 * (actions[i]**2) # Smoothness
+            uav_rewards[i] -= 0.1 # Step penalty
             
             if arrived:
-                uav_rewards[i] += 2000.0
-                ac.waypoint_manager.advance() # Sequence logic
+                uav_rewards[i] += 3000.0 # High bonus for arrival
+                ac.waypoint_manager.advance()
                 if self.mode == 'gen_mission':
-                    self._refill_mission(ac)      # Queue maintenance
-                ac.waypoint_manager.hit_waypoints.append(wp) # Track hit waypoints
+                    self._refill_mission(ac)
+                ac.waypoint_manager.hit_waypoints.append(wp)
 
-            if len(ac.waypoint_manager.waypoint_queue) == 0 and not ac.waypoint_manager.current_waypoint:
-                ac._enter_loiter()  # No more waypoints, enter loiter mode
+            if not ac.waypoint_manager.has_waypoints():
+                ac._enter_loiter()
 
-            # Geofence
+            # Geofence Penalty
             if not (self.min_lat < new_lat < self.max_lat) or not (self.min_lon < new_lon < self.max_lon):
-                uav_rewards[i] -= 400.0
+                uav_rewards[i] -= 50.0
 
-        # Collision Handling (Simplified conflicts)
         if len(self.aircraft_list) > 1:
             uav_rewards = self._calculate_collision_rewards(uav_rewards)
 
-        if self.current_step >= self.max_steps or \
-            all(not ac.waypoint_manager.has_waypoints() for ac in self.aircraft_list):
-            done = True
-        else:
-            done = False
+        done = self.current_step >= self.max_steps or \
+               all(not ac.waypoint_manager.has_waypoints() for ac in self.aircraft_list)
 
-        obs = np.concatenate(
-            [self._get_uav_obs(j) for j in range(self.max_uavs)]
-        ).astype(np.float32)
+        obs = np.concatenate([self._get_uav_obs(j) for j in range(self.max_uavs)]).astype(np.float32)
 
+        # Return the sum of rewards as requested, but we've balanced the individual components.
         return obs, sum(uav_rewards), done, False, \
             {"waypoints_hit": sum(len(ac.waypoint_manager.hit_waypoints) for ac in self.aircraft_list)}
 
@@ -304,9 +255,7 @@ class MultiUAVEnv(gym.Env):
                 ac.waypoint_manager.waypoint_queue.clear()
                 ac.waypoint_manager.current_waypoint = None
                 self._refill_mission(ac)
-            ac.apply_variance()
             ac.waypoint_manager.hit_waypoints.clear()
-        obs = np.concatenate(
-            [self._get_uav_obs(j) for j in range(self.max_uavs)]
-        ).astype(np.float32)
+        
+        obs = np.concatenate([self._get_uav_obs(j) for j in range(self.max_uavs)]).astype(np.float32)
         return obs, {}
