@@ -157,7 +157,7 @@ def create_video(uav_data, tl, br, transformer,
 
         trail = ax.scatter([], [], s=20, zorder=10)
 
-        # Safety circles (RESTORED)
+        # Safety circles
         c30 = Circle((0, 0), 30, color=color, fill=False,
                      linestyle='--', alpha=0.35)
         c5 = Circle((0, 0), 5, color=color, fill=True,
@@ -166,15 +166,14 @@ def create_video(uav_data, tl, br, transformer,
         ax.add_patch(c30)
         ax.add_patch(c5)
 
-        # Heading arrow placeholder
         arrow = None
 
         glow = Circle((0, 0),
-              0,
-              color=color,
-              alpha=0.0,
-              zorder=5,
-              linewidth=0)
+                      0,
+                      color=color,
+                      alpha=0.0,
+                      zorder=5,
+                      linewidth=0)
 
         ax.add_patch(glow)
 
@@ -190,8 +189,7 @@ def create_video(uav_data, tl, br, transformer,
             'arrow': arrow,
             'glow': glow,
             'color': color,
-            'last_target': None,
-            'trail_reset_counter': 0
+            'last_target': None
         })
 
     ax.set_xlim(tl_x - 100, br_x + 100)
@@ -231,14 +229,10 @@ def create_video(uav_data, tl, br, transformer,
             art['c5'].set_center(pos)
 
             # ======================================================
-            # LONGER FADING TRAIL
+            # LONG FADING TRAIL (NO RESET)
             # ======================================================
-            trail_len = 120   # MUCH longer trail
 
-            if art['trail_reset_counter'] > 0:
-                trail_len = 25
-                art['trail_reset_counter'] -= 1
-
+            trail_len = 120
             start_idx = max(0, step - trail_len)
             trail_pts = art['positions'][start_idx:step]
 
@@ -253,15 +247,7 @@ def create_video(uav_data, tl, br, transformer,
                 art['trail'].set_facecolors(rgba)
 
             # ======================================================
-            # HEADING VISUALIZATION
-            # Heading is radians, NORTH = 0
-            #
-            # Matplotlib uses:
-            # 0 rad = +X (east)
-            #
-            # Conversion:
-            # x = sin(theta)
-            # y = cos(theta)
+            # HEADING ARROW
             # ======================================================
 
             if art['arrow'] is not None:
@@ -286,10 +272,10 @@ def create_video(uav_data, tl, br, transformer,
                 updated.append(art['arrow'])
 
             # ======================================================
-            # ACTIVE WAYPOINT PULSE ONLY (NO DIAMOND)
+            # ACTIVE WAYPOINT PULSE (NO TRAIL RESET)
             # ======================================================
 
-            MAX_GLOW_RADIUS = 30   # meters
+            MAX_GLOW_RADIUS = 30
             MIN_GLOW_RADIUS = 20
             PULSE_SPEED = 0.05
 
@@ -298,11 +284,8 @@ def create_video(uav_data, tl, br, transformer,
 
                 if target is not None:
 
-                    if art['last_target'] != target:
-                        art['trail_reset_counter'] = 25
-                        art['last_target'] = target
+                    art['last_target'] = target
 
-                    # Smooth bounded pulse in meters
                     pulse = MIN_GLOW_RADIUS + \
                             (MAX_GLOW_RADIUS - MIN_GLOW_RADIUS) * \
                             (0.5 * (1 + np.sin(frame_num * PULSE_SPEED)))
@@ -310,7 +293,6 @@ def create_video(uav_data, tl, br, transformer,
                     art['glow'].set_center(target)
                     art['glow'].set_radius(pulse)
 
-                    # Optional: fade alpha with size for nicer look
                     alpha_scale = pulse / MAX_GLOW_RADIUS
                     art['glow'].set_alpha(0.25 * alpha_scale)
 
@@ -359,6 +341,7 @@ def create_video(uav_data, tl, br, transformer,
         anim.save(save_path, writer=writer)
 
     plt.close()
+
 
 
 # ================================================================
