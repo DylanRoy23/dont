@@ -1,6 +1,6 @@
 import os
 import numpy as np
-from stable_baselines3 import SAC
+from stable_baselines3 import SAC, PPO, A2C
 from stable_baselines3.common.callbacks import BaseCallback
 from rich.console import Console
 from rich.panel import Panel
@@ -11,34 +11,87 @@ from flight_engine.helpers import Position
 
 console = Console()
 
+# ============================================================
+# ALGORITHM REGISTRY
+# Hyperparameter keys each algorithm reads from config.
+# Only SAC has a replay buffer, so buffer_clear only runs for it.
+# ============================================================
+ALGO_REGISTRY = {
+    "SAC": {
+        "cls": SAC,
+        "has_replay_buffer": True,
+        "kwargs": lambda c: dict(
+            learning_rate=float(c["learning_rate"]),
+            buffer_size=int(c["buffer_size"]),
+            learning_starts=int(c["learning_starts"]),
+            batch_size=int(c["batch_size"]),
+            tau=float(c["tau"]),
+            gamma=float(c["gamma"]),
+            ent_coef=c["ent_coef"],
+            target_update_interval=int(c["target_update_interval"]),
+            train_freq=(int(c["train_freq"]), "step"),
+            gradient_steps=int(c["gradient_steps"]),
+            policy_kwargs=c["policy_kwargs"],
+            tensorboard_log=c["tensorboard_log"],
+            verbose=c["verbose"],
+            device=c["device"],
+        ),
+    },
+    "PPO": {
+        "cls": PPO,
+        "has_replay_buffer": False,
+        "kwargs": lambda c: dict(
+            learning_rate=float(c["learning_rate"]),
+            n_steps=int(c["n_steps"]),
+            batch_size=int(c["batch_size"]),
+            n_epochs=int(c["n_epochs"]),
+            gamma=float(c["gamma"]),
+            gae_lambda=float(c["gae_lambda"]),
+            clip_range=float(c["clip_range"]),
+            ent_coef=float(c["ent_coef"]),
+            vf_coef=float(c["vf_coef"]),
+            max_grad_norm=float(c["max_grad_norm"]),
+            policy_kwargs=c["policy_kwargs"],
+            tensorboard_log=c["tensorboard_log"],
+            verbose=c["verbose"],
+            device=c["device"],
+        ),
+    },
+    "A2C": {
+        "cls": A2C,
+        "has_replay_buffer": False,
+        "kwargs": lambda c: dict(
+            learning_rate=float(c["learning_rate"]),
+            n_steps=int(c["n_steps"]),
+            gamma=float(c["gamma"]),
+            gae_lambda=float(c["gae_lambda"]),
+            ent_coef=float(c["ent_coef"]),
+            vf_coef=float(c["vf_coef"]),
+            max_grad_norm=float(c["max_grad_norm"]),
+            policy_kwargs=c["policy_kwargs"],
+            tensorboard_log=c["tensorboard_log"],
+            verbose=c["verbose"],
+            device=c["device"],
+        ),
+    },
+}
+
+
 class RobustCurriculumCallback(BaseCallback):
-    def __init__(
-            self, 
-            origin,
-            config, 
-        ):
+    def __init__(self, origin, config, algo_name):
         super().__init__()
         self.origin = origin
-        self.config = config    
+        self.config = config
+        self.algo_name = algo_name.upper()
         self.change_freq = config["train"]["change_frequency"]
         self.total_timesteps = config["train"]["total_timesteps"]
         self.save_dir = config["train"]["save_dir"]
-        self.curriculum = self.set_curriculum(config)
+        self.curriculum = self._build_curriculum(config)
         self.buffer_clear_fraction = config["train"].get("buffer_clear_fraction", 0.5)
         self.current_phase_idx = 0
         os.makedirs(self.save_dir, exist_ok=True)
 
-    def set_curriculum(self, config):
-        """
-        Sets up the curriculum for training.
-
-        Args:
-            config (dict): The configuration dictionary
-
-        Returns:
-            list: A sorted list of tuples containing the phase, minimum box 
-            size, maximum box size, and number of drones for each phase.
-        """
+    def _build_curriculum(self, config):
         c = []
 
         for phase, args in config["train"]["curriculum"].items():
@@ -162,8 +215,9 @@ class RobustCurriculumCallback(BaseCallback):
 
     def _partial_buffer_clear(self):
         """
-        Partially clears the SAC replay buffer at phase transitions to reduce
-        the impact of stale transitions from earlier curriculum phases.
+        SAC-only: partially clears the replay buffer at phase transitions
+        to reduce stale experience from earlier curriculum phases.
+        Skipped automatically for PPO and A2C (no replay buffer).
         """
         buffer = self.model.replay_buffer
         if buffer.full or buffer.pos > 0:
@@ -194,23 +248,27 @@ class RobustCurriculumCallback(BaseCallback):
         if phase_idx > self.current_phase_idx:
             self.current_phase_idx = phase_idx
             phase = self.curriculum[phase_idx]
-
+            algo_prefix = self.algo_name.lower()
             save_path = os.path.join(
-                self.save_dir, 
-                f"sac_phase_{phase_idx}_step_{self.num_timesteps}"
+                self.save_dir,
+                f"{algo_prefix}_phase_{phase_idx}_step_{self.num_timesteps}"
             )
             self.model.save(save_path)
 
             console.print(
                 Panel(
                     f"[bold magenta]MODEL SAVED[/bold magenta]\n"
+                    f"Algorithm: {self.algo_name}\n"
                     f"Phase: {phase_idx}\n"
                     f"Progress ≥ {phase[0]*100:.0f}%\n"
                     f"Saved to:\n{save_path}",
                     expand=False,
                 )
             )
-            self._partial_buffer_clear()
+
+            # Only SAC has a replay buffer to clear
+            if ALGO_REGISTRY[self.algo_name]["has_replay_buffer"]:
+                self._partial_buffer_clear()
 
         if self.num_timesteps % self.change_freq == 0:
             tl, br, w, h = self._generate_new_box()
@@ -232,9 +290,16 @@ class RobustCurriculumCallback(BaseCallback):
         return True
 
 def train(config):
+    algo_name = config["train"].get("algorithm", "SAC").upper()
+
+    if algo_name not in ALGO_REGISTRY:
+        raise ValueError(f"Unknown algorithm '{algo_name}'. Choose from: {list(ALGO_REGISTRY.keys())}")
+
+    algo_info = ALGO_REGISTRY[algo_name]
+
     console.print(
         Panel.fit(
-            "[bold white]Multi-UAV A2C Trainer[/bold white]",
+            f"[bold white]Multi-UAV {algo_name} Trainer[/bold white]",
             subtitle="Percent-Based Curriculum Learning",
         )
     )
@@ -283,28 +348,16 @@ def train(config):
         critical_dist=config["train"]["critical_dist"]
     ) 
 
-    model = SAC(
+    model = algo_info["cls"](
         "MlpPolicy",
         env,
-        learning_rate=float(config["train"]["learning_rate"]),
-        buffer_size=int(config["train"]["buffer_size"]),
-        learning_starts=int(config["train"]["learning_starts"]),
-        batch_size=int(config["train"]["batch_size"]),
-        tau=float(config["train"]["tau"]),
-        gamma=float(config["train"]["gamma"]),
-        ent_coef=config["train"]["ent_coef"],
-        target_update_interval=int(config["train"]["target_update_interval"]),
-        train_freq=(int(config["train"]["train_freq"]), "step"),
-        gradient_steps=int(config["train"]["gradient_steps"]),
-        policy_kwargs=config["train"]["policy_kwargs"],
-        tensorboard_log=config["train"]["tensorboard_log"],
-        verbose=config["train"]["verbose"],
-        device=config["train"]["device"],
+        **algo_info["kwargs"](config["train"])
     )
 
     callback = RobustCurriculumCallback(
         origin=origin,
         config=config,
+        algo_name=algo_name
     )
 
     try:

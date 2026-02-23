@@ -1,27 +1,41 @@
 # Training options
 train:
 
-  # ------------------------------------------
-  # Stable Baselines3 hyperparameters
-  # ------------------------------------------
-  model_name: "sac_uav_curriculum"      # The name of the model to save
-  learning_rate: 3e-4                   # Adam optimizer learning rate
-  buffer_size: 1_000_000               # Replay buffer size
-  learning_starts: 10_000              # Steps before learning begins (fill buffer first)
-  batch_size: 256                       # Minibatch size for each gradient update
-  tau: 0.005                            # Soft update coefficient for target networks
-  gamma: 0.99                           # Discount factor
-  ent_coef: "auto"                      # Entropy coefficient ("auto" lets SAC tune it)
-  target_update_interval: 1            # Steps between target network updates
-  train_freq: 1                         # Update the model every N steps
-  gradient_steps: 1                     # Gradient steps per environment step
-  buffer_clear_fraction: 0.5           # Fraction of replay buffer to clear at phase transitions
-  policy_kwargs:                        # Policy network architecture
-    net_arch: [512, 512]
+  algorithm: "PPO"                    # SAC | PPO | A2C
+  model_name: "ppo_uav_curriculum"    # Used for tensorboard log name and final save filename
+  save_dir: "./models/"
   tensorboard_log: "./training_logs/"
   verbose: 0
-  device: "cuda"
-  save_dir: "./models/"
+  device: "cpu" # use the cpu for PPO and A2C, and the GPU (cuda) for SAC
+
+  # SAC hyperparameters (ignored for PPO/A2C)
+  buffer_size: 1_000_000
+  learning_starts: 10_000
+  tau: 0.005
+  ent_coef: "auto"
+  target_update_interval: 1
+  train_freq: 1
+  gradient_steps: 1
+  buffer_clear_fraction: 0.5    # Fraction of replay buffer cleared at phase transitions
+
+  # PPO hyperparameters (ignored for SAC/A2C)
+  n_epochs: 10       # How many times to reuse each rollout
+  gae_lambda: 0.95    # GAE smoothing factor
+  clip_range: 0.2      # PPO clipping parameter
+
+  # ------------------------------------------
+  # Shared hyperparameters (SAC + PPO + A2C)
+  # ------------------------------------------
+  learning_rate: 3e-4
+  batch_size: 256     # Note: PPO requires batch_size to divide n_steps evenly
+  gamma: 0.99
+  ent_coef: 0.01   # Ignored by SAC (uses ent_coef above instead)
+  vf_coef: 0.5   # Value function loss weight (PPO + A2C only)
+  max_grad_norm: 0.5  # Gradient clipping (PPO + A2C only)
+  n_steps: 2048  # Rollout length (PPO + A2C only)
+
+  policy_kwargs:
+    net_arch: [512, 512]
 
   # ------------------------------------------
   # Flight Simulator

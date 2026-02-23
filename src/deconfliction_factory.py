@@ -4,20 +4,26 @@ from rich.panel import Panel
 import argparse
 import os
 
+from test import test
+from train import train
+
 console = Console()
 
 class DeconflictionAutoPilotFactory:
     def __init__(self, mode):
-        config_path = os.path.join("config", f"{mode}_config.yaml")
+        config_names = {
+            "train": "train_config.yaml",
+            "test":  "test_config.yaml",
+        }
+        config_path = os.path.join("config", config_names[mode])
         self.config = self.read_config(config_path)
 
         if mode == 'train':
-            console.print(Panel.fit("[bold green]Starting Training Mode[/bold green]"))
-            from train import train
+            algo = self.config["train"].get("algorithm", "SAC").upper()
+            console.print(Panel.fit(f"[bold green]Starting Training Mode ({algo})[/bold green]"))
             self.run = train
         elif mode == 'test':
             console.print(Panel.fit("[bold blue]Starting Testing Mode[/bold blue]"))
-            from test import test
             self.run = test
 
     
@@ -38,7 +44,7 @@ if __name__ == "__main__":
         "--mode",
         choices=["train", "test"],
         default="train",
-        help="Mode to run the factory in: 'train' or 'test'."
+        help="Mode to run: 'train' or 'test'. Algorithm is set via algorithm: in train_config.yaml."
     )
     args = parser.parse_args()
 

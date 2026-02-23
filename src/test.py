@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle, Circle
 from matplotlib import colors as mcolors
 from matplotlib.animation import FuncAnimation, FFMpegWriter
-from stable_baselines3 import SAC
+from stable_baselines3 import SAC, PPO, A2C
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeRemainingColumn
@@ -356,7 +356,15 @@ def test(config):
     console.print(Panel.fit("[bold white]Flight Path Visualizer[/bold white]"))
     os.makedirs(config["test"]["save_dir"], exist_ok=True)
 
-    model = SAC.load(config["test"]["model_path"], device='cuda')
+    algo = config["test"].get("algorithm", "SAC").upper()
+    if algo == "SAC":
+        model_cls = SAC
+    elif algo == "A2C":
+        model_cls = A2C
+    elif algo == "PPO":
+        model_cls = PPO
+        
+    model = model_cls.load(config["test"]["model_path"], device=config["test"].get("device", "cpu"))
     origin = [
         float(config["test"]["env"]["origin"][0]),
         float(config["test"]["env"]["origin"][1])
