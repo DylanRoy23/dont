@@ -208,12 +208,12 @@ class MultiUAVEnv(gym.Env):
             if sep < self.caution_dist:
                 # Severity 0.0 at caution_dist, 1.0 at 0m
                 severity = 1.0 - (sep / self.caution_dist)
-                penalty = -5.0 * severity
+                penalty = -10.0 * severity
                 
                 if sep < self.critical_dist:
                     # Quadratic spike only at very close range
                     danger_severity = (1.0 - (sep / self.critical_dist)) ** 2
-                    penalty += -50.0 * danger_severity
+                    penalty += -2000.0 * danger_severity
                 
                 rewards_list[i1] += penalty
                 rewards_list[i2] += penalty

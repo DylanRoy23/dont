@@ -1,6 +1,6 @@
 import os
 import numpy as np
-from stable_baselines3 import A2C
+from stable_baselines3 import SAC
 from stable_baselines3.common.callbacks import BaseCallback
 from rich.console import Console
 from rich.panel import Panel
@@ -24,7 +24,7 @@ class RobustCurriculumCallback(BaseCallback):
         self.total_timesteps = config["train"]["total_timesteps"]
         self.save_dir = config["train"]["save_dir"]
         self.curriculum = self.set_curriculum(config)
-
+        self.buffer_clear_fraction = config["train"].get("buffer_clear_fraction", 0.5)
         self.current_phase_idx = 0
         os.makedirs(self.save_dir, exist_ok=True)
 
@@ -160,20 +160,35 @@ class RobustCurriculumCallback(BaseCallback):
                 )
             )
 
+    def _partial_buffer_clear(self):
+        """
+        Partially clears the SAC replay buffer at phase transitions to reduce
+        the impact of stale transitions from earlier curriculum phases.
+        """
+        buffer = self.model.replay_buffer
+        if buffer.full or buffer.pos > 0:
+            keep_count = int(buffer.pos * (1.0 - self.buffer_clear_fraction))
+            if keep_count > 0 and buffer.pos > keep_count:
+                start = buffer.pos - keep_count
+                for attr in ['observations', 'actions', 'rewards', 'dones', 'next_observations']:
+                    data = getattr(buffer, attr, None)
+                    if data is not None:
+                        data[:keep_count] = data[start:buffer.pos]
+                buffer.pos = keep_count
+                buffer.full = False
+            elif keep_count == 0:
+                buffer.reset()
+
+            console.print(
+                Panel(
+                    f"[bold yellow]BUFFER PRUNED[/bold yellow]\n"
+                    f"Cleared {self.buffer_clear_fraction*100:.0f}% of replay buffer\n"
+                    f"Remaining transitions: {buffer.pos}",
+                    expand=False,
+                )
+            )
+
     def _on_step(self) -> bool:
-        """
-        Called every step to update the environment based on the curriculum.
-
-        Checks if the current phase index is greater than the saved phase 
-        index. If so, updates the saved phase index and saves the model at 
-        the current step.
-
-        Also updates the environment by generating a new bounding box and 
-        adding/removing drones based on the current phase of the curriculum.
-
-        Returns:
-            bool: Always returns True.
-        """
         phase_idx = self._get_curriculum_phase_idx()
 
         if phase_idx > self.current_phase_idx:
@@ -182,7 +197,7 @@ class RobustCurriculumCallback(BaseCallback):
 
             save_path = os.path.join(
                 self.save_dir, 
-                f"a2c_phase_{phase_idx}_step_{self.num_timesteps}"
+                f"sac_phase_{phase_idx}_step_{self.num_timesteps}"
             )
             self.model.save(save_path)
 
@@ -195,6 +210,7 @@ class RobustCurriculumCallback(BaseCallback):
                     expand=False,
                 )
             )
+            self._partial_buffer_clear()
 
         if self.num_timesteps % self.change_freq == 0:
             tl, br, w, h = self._generate_new_box()
@@ -267,13 +283,19 @@ def train(config):
         critical_dist=config["train"]["critical_dist"]
     ) 
 
-    model = A2C(
+    model = SAC(
         "MlpPolicy",
         env,
         learning_rate=float(config["train"]["learning_rate"]),
-        max_grad_norm=config["train"]["max_grad_norm"],
-        ent_coef=config["train"]["ent_coeff"],
-        vf_coef=config["train"]["vf_coeff"],
+        buffer_size=int(config["train"]["buffer_size"]),
+        learning_starts=int(config["train"]["learning_starts"]),
+        batch_size=int(config["train"]["batch_size"]),
+        tau=float(config["train"]["tau"]),
+        gamma=float(config["train"]["gamma"]),
+        ent_coef=config["train"]["ent_coef"],
+        target_update_interval=int(config["train"]["target_update_interval"]),
+        train_freq=(int(config["train"]["train_freq"]), "step"),
+        gradient_steps=int(config["train"]["gradient_steps"]),
         policy_kwargs=config["train"]["policy_kwargs"],
         tensorboard_log=config["train"]["tensorboard_log"],
         verbose=config["train"]["verbose"],

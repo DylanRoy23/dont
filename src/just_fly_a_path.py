@@ -1,6 +1,7 @@
 import numpy as np
 import random
 import os
+from geopy.distance import geodesic
 from flight_engine.simulator import FixedWingAircraft
 from flight_engine.helpers import Position, FlightMode
 from flight_engine.visualizer import FlightVisualizer
@@ -48,6 +49,13 @@ def test_physics_with_visuals():
     for i in range(total_steps):
         for ac in uavs:
             ac.update(dt)  # simulator.py handles waypoint arrival internally
+            
+            if ac.waypoint_manager.current_waypoint:
+                dist = geodesic(ac.position.to_tuple(), 
+                               ac.waypoint_manager.current_waypoint.to_tuple()).meters
+                if ac.waypoint_manager.check_arrival(dist):
+                    ac.waypoint_manager.advance()
+
 
         # 4. Generate Visuals every 5 steps
         if i % 5 == 0:
