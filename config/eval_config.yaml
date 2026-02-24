@@ -1,0 +1,70 @@
+evaluate:
+
+  save_dir: "reports/eval" # Where to save CSV and chart
+  n_episodes: 20 # Episodes per model (more = more reliable stats)
+
+  # Models to compare
+  # Add or remove entries freely.
+  # label: display name in charts/table
+  # algorithm: SAC | PPO | A2C
+  # model_path: path to the .zip file
+  # device: cpu | cuda
+  models:
+    - label: "SAC"
+      algorithm: "SAC"
+      model_path: "models/sac_uav_curriculum.zip"
+      device: "cpu"
+
+    - label: "PPO"
+      algorithm: "PPO"
+      model_path: "models/ppo_uav_curriculum.zip"
+      device: "cpu"
+
+    - label: "A2C"
+      algorithm: "A2C"
+      model_path: "models/a2c_uav_curriculum.zip"
+      device: "cpu"
+
+  # Environment (shared across all models)
+  mode: "gen_mission"  # gen_mission | manual_mission
+  boundary_margin: 0.15
+  mission_waypoint_count: 3
+  caution_dist: 100
+  critical_dist: 35
+
+  env:
+    origin: [37.7749, -122.4194]
+    box_size: 1500
+    max_steps: 10000
+    dt: 0.3
+
+  # Required for manual_mission mode (ignored for gen_mission)
+  missions:
+    "UAV-1":
+      initial_position: [37.7749, -122.4194]
+      initial_heading: 45
+      cruise_speed: 25
+      turning_radius: 30
+      waypoints:
+        - [37.7755, -122.4188]
+        - [37.7762, -122.4182]
+        - [37.7768, -122.4176]
+        - [37.7772, -122.4170]
+        - [37.7772, -122.4160]
+        - [37.7765, -122.4155]
+        - [37.7758, -122.4160]
+        - [37.7758, -122.4170]
+        - [37.7749, -122.4194]
+    "UAV-2":
+      initial_position: [37.7742, -122.4190]
+      initial_heading: 270
+      cruise_speed: 20
+      turning_radius: 30
+      waypoints:
+        - [37.7742, -122.4172]
+        - [37.7742, -122.4162]
+        - [37.7749, -122.4162]
+        - [37.7756, -122.4172]
+        - [37.7756, -122.4190]
+        - [37.7750, -122.4186]
+        - [37.7749, -122.4194]

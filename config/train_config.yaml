@@ -1,8 +1,8 @@
 # Training options
 train:
 
-  algorithm: "PPO"                    # SAC | PPO | A2C
-  model_name: "ppo_uav_curriculum"    # Used for tensorboard log name and final save filename
+  algorithm: "A2C"                    # SAC | PPO | A2C
+  model_name: "a2c_uav_curriculum"    # Used for tensorboard log name and final save filename
   save_dir: "./models/"
   tensorboard_log: "./training_logs/"
   verbose: 0
@@ -65,7 +65,7 @@ train:
     0.10:
       min_box_size: 300
       max_box_size: 500
-      num_drones: 1
+      num_drones: 2
     0.20:
       min_box_size: 500
       max_box_size: 600
@@ -73,7 +73,7 @@ train:
     0.35:
       min_box_size: 500
       max_box_size: 800
-      num_drones: 2
+      num_drones: 3
     0.50:
       min_box_size: 600
       max_box_size: 1000

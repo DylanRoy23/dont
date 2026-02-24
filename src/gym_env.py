@@ -208,12 +208,12 @@ class MultiUAVEnv(gym.Env):
             if sep < self.caution_dist:
                 # Severity 0.0 at caution_dist, 1.0 at 0m
                 severity = 1.0 - (sep / self.caution_dist)
-                penalty = -10.0 * severity
+                penalty = -100.0 * severity
                 
                 if sep < self.critical_dist:
                     # Quadratic spike only at very close range
                     danger_severity = (1.0 - (sep / self.critical_dist)) ** 2
-                    penalty += -2000.0 * danger_severity
+                    penalty += -8000.0 * danger_severity
                 
                 rewards_list[i1] += penalty
                 rewards_list[i2] += penalty
@@ -270,7 +270,7 @@ class MultiUAVEnv(gym.Env):
             uav_rewards[i] -= 0.1  # Step penalty
             
             if arrived:
-                uav_rewards[i] += 3000.0  # High bonus for arrival
+                uav_rewards[i] += 500.0  # High bonus for arrival
                 ac.waypoint_manager.advance()
                 if self.mode == 'gen_mission':
                     self._refill_mission(ac)

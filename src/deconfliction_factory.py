@@ -6,6 +6,7 @@ import os
 
 from test import test
 from train import train
+from evaluate import evaluate
 
 console = Console()
 
@@ -14,6 +15,7 @@ class DeconflictionAutoPilotFactory:
         config_names = {
             "train": "train_config.yaml",
             "test":  "test_config.yaml",
+            "evaluate": "eval_config.yaml",
         }
         config_path = os.path.join("config", config_names[mode])
         self.config = self.read_config(config_path)
@@ -25,6 +27,9 @@ class DeconflictionAutoPilotFactory:
         elif mode == 'test':
             console.print(Panel.fit("[bold blue]Starting Testing Mode[/bold blue]"))
             self.run = test
+        elif mode == 'evaluate':
+            console.print(Panel.fit("[bold yellow]Starting Evaluation Mode[/bold yellow]"))
+            self.run = evaluate
 
     
     def read_config(self, config_path):
@@ -42,9 +47,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--mode",
-        choices=["train", "test"],
+        choices=["train", "test", "evaluate"],
         default="train",
-        help="Mode to run: 'train' or 'test'. Algorithm is set via algorithm: in train_config.yaml."
+        help="Mode to run: 'train', 'test', or 'evaluate'."
     )
     args = parser.parse_args()
 
